@@ -22,7 +22,7 @@
 ///
 
 #define NTGDIDDDDISUBMMITCOMMAND_SYSCALL_INDEX 0x1255 //19044
-#define NtUserGetWindowDisplayAffinity_SYSCALL_INDEX 0x1255 //19044
+#define NtUserGetWindowDisplayAffinity_SYSCALL_INDEX 0x1447 //19044
 #define NtUserSetWindowDisplayAffinity_SYSCALL_INDEX 0x14F6 //19044
 
 #define NTUSERGETDC_SYSCALL_INDEX 0x100d //check out for your index https://github.com/j00ru/windows-syscalls/blob/master/x64/csv/win32k.csv
@@ -440,10 +440,10 @@ typedef enum _SYSTEM_INFORMATION_CLASS
 
 typedef int64_t(*dxgk_submit_command_t)(D3DKMT_SUBMITCOMMAND* data);
 typedef int64_t(*NtUserSetWindowDisplayAffinity_t)(HWND hwnd, DWORD dwFlags);
-typedef int64_t(*NtUserGetWindowDisplayAffinity_t)(HWND hwnd);
+typedef int64_t(*NtUserGetWindowDisplayAffinity_t)(HWND hwnd, DWORD *dwFlags);
 
 int64_t __fastcall DetourNtGdiDdDDISubmitCommand(D3DKMT_SUBMITCOMMAND* data);
-int64_t __fastcall DetourNtUserGetWindowDisplayAffinity(HWND hwnd);
+int64_t __fastcall DetourNtUserGetWindowDisplayAffinity(HWND hwnd, DWORD *dwFlags);
 int64_t __fastcall DetourNtUserSetWindowDisplayAffinity(HWND hwnd, DWORD dwFlags);
 
 typedef HDC(*GetDC_t)(HWND hwnd);//verified

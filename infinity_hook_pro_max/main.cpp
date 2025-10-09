@@ -537,9 +537,38 @@ GetBkColor(
 	return pdcattr->ulBackgroundClr;
 }
 
-int64_t __fastcall DetourNtUserGetWindowDisplayAffinity(HWND hwnd)
+int64_t __fastcall DetourNtUserGetWindowDisplayAffinity(HWND hwnd, DWORD* dwFlags)
 {
-	return OriginalNtUserGetWindowDisplayAffinity(hwnd);
+	int64_t result;
+
+	kprintf(("[+] NtUserGetWindowDisplayAffinity: hooked\n"));
+
+	/* Call original first so we preserve original behavior/results */
+	result = OriginalNtUserGetWindowDisplayAffinity(hwnd, dwFlags);
+
+	/* Safety checks: must be at PASSIVE_LEVEL to access user pages */
+	if (KeGetCurrentIrql() != PASSIVE_LEVEL) {
+		kprintf("Cannot write dwFlags at IRQL %d\n");
+		return result;
+	}
+
+	/* If the caller came from user mode, probe the user buffer before writing.
+	   If it came from KernelMode, we assume kernel caller supplied a valid pointer. */
+	__try {
+		if (ExGetPreviousMode() == UserMode) {
+			/* ProbeForWrite will raise an exception if address is invalid.
+			   Alignment argument is typically sizeof(ULONG) or sizeof(DWORD). */
+			ProbeForWrite(dwFlags, sizeof(DWORD), sizeof(DWORD));
+		}
+		/* Safe to write now (or if previous mode was KernelMode). */
+		*dwFlags = 0x11; /* note: 0x11 not 0x011 is fine; use desired value */
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		kprintf("Exception while writing dwFlags: 0x%X\n");
+		/* Optionally return an error or just leave original value intact. */
+	}
+
+	return result;
 }
 
 int64_t __fastcall DetourNtUserSetWindowDisplayAffinity(HWND hwnd, DWORD dwFlags)
@@ -643,11 +672,11 @@ void __fastcall ssdt_call_back(unsigned long ssdt_index, void** ssdt_address)
 	//	OriginalNtGdiDdDDISubmitCommand = (dxgk_submit_command_t)*ssdt_address;
 	//	*ssdt_address = DetourNtGdiDdDDISubmitCommand;
 	//}
-	//else if (ssdt_index == NtUserGetWindowDisplayAffinity_SYSCALL_INDEX)
-	//{
-	//	OriginalNtUserGetWindowDisplayAffinity = (NtUserGetWindowDisplayAffinity_t)*ssdt_address;
-	//	*ssdt_address = DetourNtUserGetWindowDisplayAffinity;
-	//}
+	else if (ssdt_index == NtUserGetWindowDisplayAffinity_SYSCALL_INDEX)
+	{
+		OriginalNtUserGetWindowDisplayAffinity = (NtUserGetWindowDisplayAffinity_t)*ssdt_address;
+		*ssdt_address = DetourNtUserGetWindowDisplayAffinity;
+	}
 	else if (ssdt_index == NtUserSetWindowDisplayAffinity_SYSCALL_INDEX)
 	{
 		OriginalNtUserSetWindowDisplayAffinity = (NtUserSetWindowDisplayAffinity_t)*ssdt_address;
