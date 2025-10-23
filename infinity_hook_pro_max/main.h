@@ -22,8 +22,11 @@
 ///
 
 #define NTGDIDDDDISUBMMITCOMMAND_SYSCALL_INDEX 0x1255 //19044
-#define NtUserGetWindowDisplayAffinity_SYSCALL_INDEX 0x1447 //19044
-#define NtUserSetWindowDisplayAffinity_SYSCALL_INDEX 0x14F6 //19044
+//#define NtUserGetWindowDisplayAffinity_SYSCALL_INDEX 0x1447 //19044
+//#define NtUserSetWindowDisplayAffinity_SYSCALL_INDEX 0x14F6 //19044
+//#define NtUserPrintWindow_SYSCALL_INDEX 0x1490
+//#define NtGdiBitBlt_SYSCALL_INDEX 0x1008
+//#define NtGdiStretchBlt_SYSCALL_INDEX 0x1031
 
 #define NTUSERGETDC_SYSCALL_INDEX 0x100d //check out for your index https://github.com/j00ru/windows-syscalls/blob/master/x64/csv/win32k.csv
 #define NTGDIPATBLT_SYSCALL_INDEX 0x105c //check out for your index https://github.com/j00ru/windows-syscalls/blob/master/x64/csv/win32k.csv
@@ -440,11 +443,17 @@ typedef enum _SYSTEM_INFORMATION_CLASS
 
 typedef int64_t(*dxgk_submit_command_t)(D3DKMT_SUBMITCOMMAND* data);
 typedef int64_t(*NtUserSetWindowDisplayAffinity_t)(HWND hwnd, DWORD dwFlags);
-typedef int64_t(*NtUserGetWindowDisplayAffinity_t)(HWND hwnd, DWORD *dwFlags);
+typedef int64_t(*NtUserGetWindowDisplayAffinity_t)(HWND hwnd, DWORD* dwFlags);
+typedef int64_t(*NtUserPrintWindow_t)(HWND hwnd, HDC hdcBlt, UINT nFlags);
+typedef int64_t(*NtGdiBitBlt_t)(HDC hDCDest, INT XDest, INT YDest, INT Width, INT Height, HDC hDCSrc, INT XSrc, INT YSrc, DWORD dwRop, IN DWORD crBackColor, IN FLONG fl);
+typedef int64_t(*NtGdiStretchBlt_t)(HDC hDCDest, INT XOriginDest, INT YOriginDest, INT WidthDest, INT HeightDest, HDC hDCSrc, INT XOriginSrc, INT YOriginSrc, INT WidthSrc, INT HeightSrc, DWORD dwRop3, IN DWORD dwBackColor);
 
 int64_t __fastcall DetourNtGdiDdDDISubmitCommand(D3DKMT_SUBMITCOMMAND* data);
 int64_t __fastcall DetourNtUserGetWindowDisplayAffinity(HWND hwnd, DWORD *dwFlags);
 int64_t __fastcall DetourNtUserSetWindowDisplayAffinity(HWND hwnd, DWORD dwFlags);
+int64_t __fastcall DetourNtUserPrintWindow(HWND hwnd, HDC hdcBlt, UINT nFlags);
+int64_t __fastcall DetourNtGdiBitBlt(HDC hDCDest, INT XDest, INT YDest, INT Width, INT Height, HDC hDCSrc, INT XSrc, INT YSrc, DWORD dwRop, IN DWORD crBackColor, IN FLONG fl);
+int64_t __fastcall DetourNtGdiStretchBlt(HDC hDCDest, INT XOriginDest, INT YOriginDest, INT WidthDest, INT HeightDest, HDC hDCSrc, INT XOriginSrc, INT YOriginSrc, INT WidthSrc, INT HeightSrc, DWORD dwRop3, IN DWORD dwBackColor);
 
 typedef HDC(*GetDC_t)(HWND hwnd);//verified
 
@@ -636,3 +645,15 @@ PVOID get_system_module_export(LPCWSTR module_name, LPCSTR routine_name)
 	return RtlxFindExportedRoutineByName(lpModule, routine_name);
 	//return RtlFindExportedRoutineByName(lpModule, routine_name);
 }
+
+//#define NtUserGetWindowDisplayAffinity_SYSCALL_INDEX 0x1447 //19044
+//#define NtUserSetWindowDisplayAffinity_SYSCALL_INDEX 0x14F6 //19044
+//#define NtUserPrintWindow_SYSCALL_INDEX 0x1490
+//#define NtGdiBitBlt_SYSCALL_INDEX 0x1008
+//#define NtGdiStretchBlt_SYSCALL_INDEX 0x1031
+
+ULONG g_NtUserGetWindowDisplayAffinity_Syscall_index = 0u;
+ULONG g_NtUserSetWindowDisplayAffinity_Syscall_index = 0u;
+ULONG g_NtUserPrintWindow_Syscall_index = 0u;
+ULONG g_NtGdiBitBlt_Syscall_index = 0u;
+ULONG g_NtGdiStretchBlt_Syscall_index = 0u;

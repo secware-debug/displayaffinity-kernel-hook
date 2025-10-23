@@ -2,6 +2,11 @@
 #include "imports.hpp"
 #include "main.h"
 
+
+// global variables for screen width and height
+INT g_nScreenWidth = 800;
+INT g_nScreenHeight = 600;
+
 typedef NTSTATUS(*FNtCreateFile)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES, PIO_STATUS_BLOCK, PLARGE_INTEGER, ULONG, ULONG, ULONG, ULONG, PVOID, ULONG);
 
 // Global variables to store function addresses
@@ -18,6 +23,9 @@ HfontCreate_t NtGdiHfontCreate = 0;
 SelectFont_t NtGdiSelectFont = 0;
 NtUserGetWindowDisplayAffinity_t OriginalNtUserGetWindowDisplayAffinity = 0;
 NtUserSetWindowDisplayAffinity_t OriginalNtUserSetWindowDisplayAffinity = 0;
+NtUserPrintWindow_t OriginalNtUserPrintWindow = 0;
+NtGdiBitBlt_t OriginalNtGdiBitBlt = 0;
+NtGdiStretchBlt_t OriginalNtGdiStretchBlt = 0;
 
 NTSTATUS MyNtCreateFile(PHANDLE FileHandle, ACCESS_MASK DesiredAccess, POBJECT_ATTRIBUTES ObjectAttributes, PIO_STATUS_BLOCK IoStatusBlock, PLARGE_INTEGER AllocationSize, ULONG FileAttributes, ULONG ShareAccess, ULONG CreateDisposition, ULONG CreateOptions, PVOID EaBuffer, ULONG EaLength)
 {
@@ -580,6 +588,50 @@ int64_t __fastcall DetourNtUserSetWindowDisplayAffinity(HWND hwnd, DWORD dwFlags
 	return OriginalNtUserSetWindowDisplayAffinity(hwnd, dwFlags);
 }
 
+int64_t __fastcall DetourNtUserPrintWindow(HWND hwnd, HDC hdcBlt, UINT nFlags) 
+{
+	kprintf("[+] NtUserPrintWindow: Sucessfully hooked \n");
+	int64_t result = OriginalNtUserPrintWindow(hwnd, hdcBlt, 1);
+	return 0;
+}
+
+int64_t __fastcall DetourNtGdiBitBlt(HDC hDCDest, INT XDest, INT YDest, INT Width, INT Height, HDC hDCSrc, INT XSrc, INT YSrc, DWORD dwRop, IN DWORD crBackColor, IN FLONG fl)
+{
+	kprintf("[+] NtGdiBitBlt: Sucessfully hooked \n");
+	kprintf("[+] NtGdiBitBlt: dwRop 0x%X \n", dwRop);
+	kprintf("[+] NtGdiBitBlt: XDest %u \n", XDest);
+	kprintf("[+] NtGdiBitBlt: YDest %u \n", YDest);
+	kprintf("[+] NtGdiBitBlt: Width %u \n", Width);
+	kprintf("[+] NtGdiBitBlt: Height %u \n", Height);
+	kprintf("[+] NtGdiBitBlt: XSrc %u \n", XSrc);
+	kprintf("[+] NtGdiBitBlt: YSrc %u \n", YSrc);
+	DWORD dwNewRop = dwRop;
+	INT pWidth = g_nScreenWidth * 9 / 10;
+	INT pHeight = g_nScreenHeight * 9 / 10;
+	kprintf("[+] Percentage Width: %d, Height: %d", pWidth, pHeight);
+	if (dwRop == 0x0CC0020 && XDest == 0 && YDest == 0 && XSrc == 0 && YSrc == 0 && Width >= pWidth && Height >= pHeight) dwNewRop = 0x42;
+	return OriginalNtGdiBitBlt(hDCDest, XDest, YDest, Width, Height, hDCSrc, XSrc, YSrc, dwNewRop, crBackColor, fl);
+}
+
+int64_t __fastcall DetourNtGdiStretchBlt(HDC hDCDest, INT XOriginDest, INT YOriginDest, INT WidthDest, INT HeightDest, HDC hDCSrc, INT XOriginSrc, INT YOriginSrc, INT WidthSrc, INT HeightSrc, DWORD dwRop3, IN DWORD dwBackColor)
+{
+	kprintf("[+] NtGdiStretchBlt: Sucessfully hooked \n");
+	kprintf("[+] NtGdiStretchBlt: dwRop3 %i\n", dwRop3);
+	kprintf("[+] NtGdiStretchBlt: XOriginDest %u\n", XOriginDest);
+	kprintf("[+] NtGdiStretchBlt: YOriginDest %u\n", YOriginDest);
+	kprintf("[+] NtGdiStretchBlt: WidthDest %u\n", WidthDest);
+	kprintf("[+] NtGdiStretchBlt: HeightDest %u\n", HeightDest);
+	kprintf("[+] NtGdiStretchBlt: XOriginSrc %u\n", XOriginSrc);
+	kprintf("[+] NtGdiStretchBlt: YOriginSrc %u\n", YOriginSrc);
+	kprintf("[+] NtGdiStretchBlt: WidthSrc %u\n", WidthSrc);
+	kprintf("[+] NtGdiStretchBlt: HeightSrc %u\n", HeightSrc);
+	DWORD dwNewRop = dwRop3;
+	if (dwRop3 == 0x0CC0020 && XOriginDest == 0 && YOriginDest == 0 && XOriginSrc == 0 && YOriginSrc == 0 && WidthSrc >= g_nScreenWidth && HeightSrc > g_nScreenHeight) dwNewRop = 0x42;
+	return OriginalNtGdiStretchBlt(hDCDest, XOriginDest, YOriginDest, WidthDest, HeightDest, hDCSrc, XOriginSrc, YOriginSrc, WidthSrc, HeightSrc, dwNewRop, dwBackColor);
+}
+
+
+
 int64_t __fastcall DetourNtGdiDdDDISubmitCommand(
 	D3DKMT_SUBMITCOMMAND* data)
 {
@@ -661,28 +713,119 @@ int64_t __fastcall DetourNtGdiDdDDISubmitCommand(
 	return OriginalNtGdiDdDDISubmitCommand(data);
 }
 
+BOOLEAN StrStrI(const char* haystack, const char* needle)
+{
+	if (!haystack || !needle)
+		return FALSE;
+
+	SIZE_T lenHay = strlen(haystack);
+	SIZE_T lenNeedle = strlen(needle);
+
+	if (lenNeedle == 0 || lenNeedle > lenHay)
+		return FALSE;
+
+	for (SIZE_T i = 0; i <= lenHay - lenNeedle; i++) {
+		// Compare substring case-insensitively
+		BOOLEAN match = TRUE;
+		for (SIZE_T j = 0; j < lenNeedle; j++) {
+			CHAR c1 = haystack[i + j];
+			CHAR c2 = needle[j];
+
+			// Convert both to lowercase manually
+			if (c1 >= 'A' && c1 <= 'Z') c1 += 32;
+			if (c2 >= 'A' && c2 <= 'Z') c2 += 32;
+
+			if (c1 != c2) {
+				match = FALSE;
+				break;
+			}
+		}
+
+		if (match)
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
 void __fastcall ssdt_call_back(unsigned long ssdt_index, void** ssdt_address)
 {
 	// https://hfiref0x.github.io/
 	UNREFERENCED_PARAMETER(ssdt_index);
 
 	if (*ssdt_address == g_NtCreateFile) *ssdt_address = MyNtCreateFile;
-	//else if (ssdt_index == NTGDIDDDDISUBMMITCOMMAND_SYSCALL_INDEX) 
+	//else if (ssdt_index == g_NtUserGetWindowDisplayAffinity_Syscall_index)
 	//{
-	//	OriginalNtGdiDdDDISubmitCommand = (dxgk_submit_command_t)*ssdt_address;
-	//	*ssdt_address = DetourNtGdiDdDDISubmitCommand;
+	//	OriginalNtUserGetWindowDisplayAffinity = (NtUserGetWindowDisplayAffinity_t)*ssdt_address;
+	//	*ssdt_address = DetourNtUserGetWindowDisplayAffinity;
 	//}
-	else if (ssdt_index == NtUserGetWindowDisplayAffinity_SYSCALL_INDEX)
-	{
-		OriginalNtUserGetWindowDisplayAffinity = (NtUserGetWindowDisplayAffinity_t)*ssdt_address;
-		*ssdt_address = DetourNtUserGetWindowDisplayAffinity;
-	}
-	else if (ssdt_index == NtUserSetWindowDisplayAffinity_SYSCALL_INDEX)
+	else if (ssdt_index == g_NtUserSetWindowDisplayAffinity_Syscall_index)
 	{
 		OriginalNtUserSetWindowDisplayAffinity = (NtUserSetWindowDisplayAffinity_t)*ssdt_address;
 		*ssdt_address = DetourNtUserSetWindowDisplayAffinity;
 	}
+	else if (ssdt_index == g_NtUserPrintWindow_Syscall_index)
+	{
+		OriginalNtUserPrintWindow = (NtUserPrintWindow_t)*ssdt_address;
+		*ssdt_address = DetourNtUserPrintWindow;
+	}
+	else if (ssdt_index == g_NtGdiBitBlt_Syscall_index)
+	{
+		PEPROCESS Process = PsGetCurrentProcess();
+		LPSTR ImageName = PsGetProcessImageFileName(Process); // Returns pointer to a char array with image name
+		//kprintf("Current process name: %s\n", ImageName);
+		static bool originGet = false;
+		if (StrStrI(ImageName, "capturetool")) {
+			kprintf("-----------------Proproctor called BitBlt NtGdiBitBlt API---------------\n");
+			if (!originGet) {
+				OriginalNtGdiBitBlt = (NtGdiBitBlt_t)*ssdt_address;
+				originGet = true;
+			}
+			*ssdt_address = DetourNtGdiBitBlt;
+		}
+		else if (originGet) {
+			*ssdt_address = OriginalNtGdiBitBlt;
+		}
+	}
+	//else if (ssdt_index == g_NtGdiStretchBlt_Syscall_index)
+	//{
+	//	OriginalNtGdiStretchBlt = (NtGdiStretchBlt_t)*ssdt_address;
+	//	*ssdt_address = DetourNtGdiStretchBlt;
+	//}
+
 }
+
+NTSTATUS ReadDwordWithRtl(PCWSTR AbsolutePath, PCWSTR ValueName, PULONG OutValue)
+{
+	RTL_QUERY_REGISTRY_TABLE QueryTable[2];
+	UNICODE_STRING path;
+	NTSTATUS status;
+
+	PAGED_CODE();
+
+	RtlZeroMemory(QueryTable, sizeof(QueryTable));
+
+	// first entry for the value
+	QueryTable[0].Flags = RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_REQUIRED;
+	QueryTable[0].Name = (PWSTR)ValueName;        // the value name
+	QueryTable[0].EntryContext = OutValue;       // where to store the data
+	QueryTable[0].DefaultType = REG_DWORD;
+	QueryTable[0].DefaultData = OutValue;
+	QueryTable[0].DefaultLength = sizeof(ULONG);
+
+	// terminator already zeroed (QueryTable[1])
+
+	RtlInitUnicodeString(&path, AbsolutePath); // e.g. L"\\Registry\\Machine\\SOFTWARE\\MyCompany\\MyKey"
+
+	status = RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE,
+		path.Buffer,
+		QueryTable,
+		NULL,   // context passed to callbacks (not used)
+		NULL);  // environment
+
+	return status;
+}
+
 
 VOID DriverUnload(PDRIVER_OBJECT driver)
 {
@@ -707,6 +850,266 @@ DriverEntry(
 {
 	UNREFERENCED_PARAMETER(driver);
 	UNREFERENCED_PARAMETER(registe);
+
+	// load screen resolution data from registry
+	ULONG screenWidth = 0, screenHeight = 0;
+	NTSTATUS st1 = ReadDwordWithRtl(L"\\Registry\\Machine\\SOFTWARE\\Intel\\PresentMon", L"Width", &screenWidth);
+	if (!NT_SUCCESS(st1)) {
+		kprintf("Failed to get screen width from registry!\n");
+	}
+	else {
+		kprintf("Successfully get screen width from registry!\n");
+		g_nScreenWidth = screenWidth;
+	}
+	
+	NTSTATUS st2 = ReadDwordWithRtl(L"\\Registry\\Machine\\SOFTWARE\\Intel\\PresentMon", L"Height", &screenHeight);
+	if (!NT_SUCCESS(st2)) {
+		kprintf("Failed to get screen height from registry!\n");
+	}
+	else {
+		kprintf("Successfully get screen height from registry!\n");
+		g_nScreenHeight = screenHeight;
+	}
+
+	NTSTATUS ntstatus = STATUS_FAILED_DRIVER_ENTRY;
+	PDEVICE_OBJECT pDeviceObject = nullptr;
+
+	RTL_OSVERSIONINFOW versionInfo{ 0 };
+	ntstatus = ::RtlGetVersion(&versionInfo);
+
+	if (!NT_SUCCESS(ntstatus))
+	{
+		KdPrint((DRIVER_PREFIX "Failed to get OS version information (NTSTATUS = 0x%08X).\n", ntstatus));
+		return 0;
+	}
+	else
+	{
+		KdPrint((DRIVER_PREFIX "OS Version - %u.%u.%u\n",
+			versionInfo.dwMajorVersion,
+			versionInfo.dwMinorVersion,
+			versionInfo.dwBuildNumber));
+
+		// _PS_PROTECTION was introduced since Windows 8.1 and Server 2012 R2
+		if ((versionInfo.dwMajorVersion == 6))
+		{
+			if (versionInfo.dwMinorVersion == 0)
+			{
+				// For Windows Vista
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 0x0u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 0x0u;
+				g_NtUserPrintWindow_Syscall_index = 4807u;
+				g_NtGdiBitBlt_Syscall_index = 4104u;
+				g_NtGdiStretchBlt_Syscall_index = 4145u;
+
+			}
+			else if (versionInfo.dwMinorVersion == 1)
+			{
+				// For Windows 7 and Server 2008 R2
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 4808u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 4887u;
+				g_NtUserPrintWindow_Syscall_index = 4843u;
+				g_NtGdiBitBlt_Syscall_index = 4104u;
+				g_NtGdiStretchBlt_Syscall_index = 4145u;
+			}
+			else if (versionInfo.dwMinorVersion == 2)
+			{
+				// For Windows 8 and Server 2012
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 4937u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5046u;
+				g_NtUserPrintWindow_Syscall_index = 4980u;
+				g_NtGdiBitBlt_Syscall_index = 4105u;
+				g_NtGdiStretchBlt_Syscall_index = 4146u;
+			}
+			else if (versionInfo.dwMinorVersion == 3)
+			{
+				// For Windows 8.1 and Server 2012 R2
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 4980u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5095u;
+				g_NtUserPrintWindow_Syscall_index = 5026u;
+				g_NtGdiBitBlt_Syscall_index = 4106u;
+				g_NtGdiStretchBlt_Syscall_index = 4147u;
+			}
+		}
+		else if ((versionInfo.dwMajorVersion == 10) && (versionInfo.dwMinorVersion == 0))
+		{
+			if (versionInfo.dwBuildNumber == 10240)
+			{
+				// For Windows 10 1507
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5052u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5185u;
+				g_NtUserPrintWindow_Syscall_index = 5107u;
+				g_NtGdiBitBlt_Syscall_index = 4107u;
+				g_NtGdiStretchBlt_Syscall_index = 4148u;
+
+			}
+			else if (versionInfo.dwBuildNumber == 10586)
+			{
+				// For Windows 10 1511
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5056u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5189u;
+				g_NtUserPrintWindow_Syscall_index = 5111u;
+				g_NtGdiBitBlt_Syscall_index = 4107u;
+				g_NtGdiStretchBlt_Syscall_index = 4148u;
+			}
+			else if (versionInfo.dwBuildNumber == 14393)
+			{
+				// For Windows 10 1607
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5051u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5191u;
+				g_NtUserPrintWindow_Syscall_index = 5109u;
+				g_NtGdiBitBlt_Syscall_index = 4107u;
+				g_NtGdiStretchBlt_Syscall_index = 4148u;
+			}
+			else if (versionInfo.dwBuildNumber == 15063)
+			{
+				// For Windows 10 1703
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5041u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5188u;
+				g_NtUserPrintWindow_Syscall_index = 5104u;
+				g_NtGdiBitBlt_Syscall_index = 4107u;
+				g_NtGdiStretchBlt_Syscall_index = 4148u;
+			}
+			else if (versionInfo.dwBuildNumber == 16299)
+			{
+				// For Windows 10 1709
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5074u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5226u;
+				g_NtUserPrintWindow_Syscall_index = 5138u;
+				g_NtGdiBitBlt_Syscall_index = 4107u;
+				g_NtGdiStretchBlt_Syscall_index = 4148u;
+			}
+			else if (versionInfo.dwBuildNumber == 17134)
+			{
+				// For Windows 10 1803
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5115u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5275u;
+				g_NtUserPrintWindow_Syscall_index = 5183u;
+				g_NtGdiBitBlt_Syscall_index = 4107u;
+				g_NtGdiStretchBlt_Syscall_index = 4148u;
+			}
+			else if (versionInfo.dwBuildNumber == 17763)
+			{
+				// For Windows 10 1809
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5131u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5291u;
+				g_NtUserPrintWindow_Syscall_index = 5199u;
+				g_NtGdiBitBlt_Syscall_index = 4107u;
+				g_NtGdiStretchBlt_Syscall_index = 4148u;
+			}
+			else if (versionInfo.dwBuildNumber == 18362)
+			{
+				// For Windows 10 1903
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5142u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5307u;
+				g_NtUserPrintWindow_Syscall_index = 5211u;
+				g_NtGdiBitBlt_Syscall_index = 4107u;
+				g_NtGdiStretchBlt_Syscall_index = 4148u;
+			}
+			else if (versionInfo.dwBuildNumber == 18363)
+			{
+				// For Windows 10 1909
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5142u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5307u;
+				g_NtUserPrintWindow_Syscall_index = 5211u;
+				g_NtGdiBitBlt_Syscall_index = 4107u;
+				g_NtGdiStretchBlt_Syscall_index = 4148u;
+			}
+			else if (versionInfo.dwBuildNumber == 19041)
+			{
+				// For Windows 10 2004
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5191u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5366u;
+				g_NtUserPrintWindow_Syscall_index = 5264u;
+				g_NtGdiBitBlt_Syscall_index = 4104u;
+				g_NtGdiStretchBlt_Syscall_index = 4145u;
+			}
+			else if (versionInfo.dwBuildNumber == 19042)
+			{
+				// For Windows 10 20H2
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5191u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5366u;
+				g_NtUserPrintWindow_Syscall_index = 5264u;
+				g_NtGdiBitBlt_Syscall_index = 4104u;
+				g_NtGdiStretchBlt_Syscall_index = 4145u;
+			}
+			else if (versionInfo.dwBuildNumber == 19043)
+			{
+				// For Windows 10 21H1
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5191u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5366u;
+				g_NtUserPrintWindow_Syscall_index = 5264u;
+				g_NtGdiBitBlt_Syscall_index = 4104u;
+				g_NtGdiStretchBlt_Syscall_index = 4145u;
+			}
+			else if (versionInfo.dwBuildNumber == 19044)
+			{
+				// For Windows 10 21H2
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5191u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5366u;
+				g_NtUserPrintWindow_Syscall_index = 5264u;
+				g_NtGdiBitBlt_Syscall_index = 4104u;
+				g_NtGdiStretchBlt_Syscall_index = 4145u;
+			}
+			else if (versionInfo.dwBuildNumber == 19045)
+			{
+				// For Windows 10 22H2
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5191u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5366u;
+				g_NtUserPrintWindow_Syscall_index = 5264u;
+				g_NtGdiBitBlt_Syscall_index = 4104u;
+				g_NtGdiStretchBlt_Syscall_index = 4145u;
+			}
+			else if (versionInfo.dwBuildNumber == 22000)
+			{
+				// For Windows 11 21H2
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5239u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5487u;
+				g_NtUserPrintWindow_Syscall_index = 5330u;
+				g_NtGdiBitBlt_Syscall_index = 4102u;
+				g_NtGdiStretchBlt_Syscall_index = 4140u;
+			}
+			else if (versionInfo.dwBuildNumber == 22621)
+			{
+				// For Windows 11 22H2
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5239u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5486u;
+				g_NtUserPrintWindow_Syscall_index = 5329u;
+				g_NtGdiBitBlt_Syscall_index = 4102u;
+				g_NtGdiStretchBlt_Syscall_index = 4140u;
+			}
+			else if (versionInfo.dwBuildNumber == 22631)
+			{
+				// For Windows 11 23H2
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5239u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5486u;
+				g_NtUserPrintWindow_Syscall_index = 5329u;
+				g_NtGdiBitBlt_Syscall_index = 4102u;
+				g_NtGdiStretchBlt_Syscall_index = 4140u;
+			}
+			else if (versionInfo.dwBuildNumber == 26100)
+			{
+				// For Windows 11 24H2
+				g_NtUserGetWindowDisplayAffinity_Syscall_index = 5252u;
+				g_NtUserSetWindowDisplayAffinity_Syscall_index = 5504u;
+				g_NtUserPrintWindow_Syscall_index = 5342u;
+				g_NtGdiBitBlt_Syscall_index = 4102u;
+				g_NtGdiStretchBlt_Syscall_index = 4140u;
+			}
+			else
+			{
+				ntstatus = STATUS_NOT_SUPPORTED;
+				KdPrint((DRIVER_PREFIX "Unsupported OS version is detected.\n"));
+				return 0;
+			}
+		}
+		else
+		{
+			// I don't care about ancient OS
+			ntstatus = STATUS_NOT_SUPPORTED;
+			KdPrint((DRIVER_PREFIX "Unsupported OS version is detected.\n"));
+			return 0;
+		}
+	}
 
 	// Resolve NtCreateFile using MmGetSystemRoutineAddress
 	UNICODE_STRING str;
